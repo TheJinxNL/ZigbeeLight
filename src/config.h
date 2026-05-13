@@ -9,7 +9,7 @@
 #define LED_DATA_PIN        8
 
 // Total number of LEDs in the strip
-#define NUM_LEDS            30
+#define NUM_LEDS            8
 
 // WS2812B uses GRB byte order (not RGB)
 #define COLOR_ORDER         GRB
@@ -33,7 +33,7 @@
 //  Device identity
 //  Shown in the Hue app; keep under 32 chars each.
 // ─────────────────────────────────────────────
-#define DEVICE_MANUFACTURER "Espressif"
+#define DEVICE_MANUFACTURER "JINX"
 #define DEVICE_MODEL        "ZBLightStrip"
 
 // ─────────────────────────────────────────────

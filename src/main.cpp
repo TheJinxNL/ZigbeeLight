@@ -18,6 +18,7 @@
  */
 
 #include <Arduino.h>
+#include <math.h>
 
 #ifndef ZIGBEE_MODE_ED
 #error "Set board_build.zigbee_mode = ed in platformio.ini"
@@ -40,6 +41,65 @@ struct LightState {
     bool     isCT    = false;  // true = colour-temp mode, false = RGB mode
     volatile bool dirty = false;
 } lightState;
+
+// ── Effect state ──────────────────────────────────────────────────────────
+enum class Effect : uint8_t { NONE, BLINK, BREATHE, RAINBOW, CHANNEL_CHANGE };
+struct { volatile Effect active = Effect::NONE; uint32_t startedAt = 0; } effectState;
+
+// Function pointer called by patched ZigbeeHandlers.cpp for TriggerEffect commands
+void (*zigbee_identify_effect_cb)(uint8_t, uint8_t) = nullptr;
+
+static void onIdentifyEffect(uint8_t effectId, uint8_t /*variant*/) {
+    Serial.printf("Effect ID: 0x%02X\n", effectId);
+    switch (effectId) {
+        case 0x00: effectState.active = Effect::BLINK;          break;
+        case 0x01: effectState.active = Effect::BREATHE;        break;
+        case 0x02: effectState.active = Effect::RAINBOW;        break;
+        case 0x0b: effectState.active = Effect::CHANNEL_CHANGE; break;
+        case 0xfe: case 0xff:
+            effectState.active = Effect::NONE;
+            lightState.dirty = true;
+            return;
+        default: return;
+    }
+    effectState.startedAt = millis();
+}
+
+static void tickEffect() {
+    if (effectState.active == Effect::NONE) return;
+    uint32_t ms = millis() - effectState.startedAt;
+    switch (effectState.active) {
+        case Effect::BLINK: {
+            fill_solid(leds, NUM_LEDS, ((ms / 200) % 2 == 0) ? CRGB::White : CRGB::Black);
+            FastLED.show();
+            if (ms >= 1200) { effectState.active = Effect::NONE; lightState.dirty = true; }
+            break;
+        }
+        case Effect::BREATHE: {
+            uint8_t b = (uint8_t)(127.5f * (1.0f + sinf((ms % 2000) / 2000.0f * 2.0f * (float)M_PI - (float)M_PI / 2.0f)));
+            fill_solid(leds, NUM_LEDS, CRGB(b, b, b));
+            FastLED.show();
+            if (ms >= 4000) { effectState.active = Effect::NONE; lightState.dirty = true; }
+            break;
+        }
+        case Effect::RAINBOW: {
+            uint8_t hue = (uint8_t)(ms / 20);  // full hue cycle ~5 s
+            fill_rainbow(leds, NUM_LEDS, hue, 255 / NUM_LEDS);
+            FastLED.show();
+            // runs until stop_effect or a new light command
+            break;
+        }
+        case Effect::CHANNEL_CHANGE: {
+            float bri = ms < 500 ? 1.0f - ms / 500.0f : ms < 1000 ? 0.0f : (ms - 1000) / 500.0f;
+            uint8_t b = (uint8_t)(255 * constrain(bri, 0.0f, 1.0f));
+            fill_solid(leds, NUM_LEDS, CRGB(b, b, b));
+            FastLED.show();
+            if (ms >= 1500) { effectState.active = Effect::NONE; lightState.dirty = true; }
+            break;
+        }
+        default: break;
+    }
+}
 
 // ── Colour-temperature helpers ────────────────────────────────────────────
 static inline uint16_t kelvinToMireds(uint16_t k) { return k ? 1000000u / k : 370; }
@@ -73,6 +133,7 @@ static void applyLEDs() {
 // Called for colour scenes (XY → RGB conversion handled by the stack)
 void onRgbChange(bool state, uint8_t r, uint8_t g, uint8_t b, uint8_t level) {
     Serial.printf("RGB  state=%d  r=%u g=%u b=%u  level=%u\n", state, r, g, b, level);
+    effectState.active = Effect::NONE;
     lightState.on    = state;
     lightState.r     = r;
     lightState.g     = g;
@@ -85,6 +146,7 @@ void onRgbChange(bool state, uint8_t r, uint8_t g, uint8_t b, uint8_t level) {
 // Called for white / colour-temperature scenes
 void onTempChange(bool state, uint8_t level, uint16_t mireds) {
     Serial.printf("CT   state=%d  level=%u  mireds=%u\n", state, level, mireds);
+    effectState.active = Effect::NONE;
     lightState.on     = state;
     lightState.level  = level;
     lightState.mireds = mireds ? mireds : 370;
@@ -95,7 +157,6 @@ void onTempChange(bool state, uint8_t level, uint16_t mireds) {
 // Called by the coordinator / Hue bridge when it wants to identify the device
 void onIdentify(uint16_t timeSeconds) {
     Serial.printf("Identify for %u s\n", timeSeconds);
-    // Blink handled in loop via identify state
     lightState.dirty = true;
 }
 
@@ -168,6 +229,7 @@ void setup() {
         }
     }
     Serial.println("\nConnected!");
+    zigbee_identify_effect_cb = onIdentifyEffect;
 }
 
 // ── loop ──────────────────────────────────────────────────────────────────
@@ -177,6 +239,8 @@ void loop() {
         wasConnected = true;
         Serial.println("Zigbee network connected!");
     }
+
+    tickEffect();
 
     // Apply pending LED state from Zigbee callbacks
     if (lightState.dirty) {
