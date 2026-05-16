@@ -27,7 +27,7 @@
 // Zigbee channel to join (must match your coordinator).
 // Common values: zigbee2mqtt=11, Hue bridge=11/15/20/25.
 // Check: Hue app → Settings → Hue Bridges → i → Zigbee channel.
-#define ZIGBEE_CHANNEL      11
+#define ZIGBEE_CHANNEL      25
 
 // ─────────────────────────────────────────────
 //  Device identity

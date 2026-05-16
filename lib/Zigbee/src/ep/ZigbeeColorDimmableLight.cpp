@@ -18,10 +18,22 @@
 #if CONFIG_ZB_ENABLED
 
 ZigbeeColorDimmableLight::ZigbeeColorDimmableLight(uint8_t endpoint) : ZigbeeEP(endpoint) {
+  // _device_id is used internally (HOME_GATEWAY routing check + logging only).
+  // Keep the nearest valid enum value; the actual advertised ZHA device type
+  // lives in _ep_config.app_device_id below, which is set to 0x010D
+  // (Extended Color Light) so the Hue bridge sees the correct device type.
   _device_id = ESP_ZB_HA_COLOR_DIMMABLE_LIGHT_DEVICE_ID;
 
   esp_zb_color_dimmable_light_cfg_t light_cfg = ZIGBEE_DEFAULT_COLOR_DIMMABLE_LIGHT_CONFIG();
   _cluster_list = esp_zb_color_dimmable_light_clusters_create(&light_cfg);
+
+  // "Off with Effect" (ZCL command 0x40) requires on_time and global_scene_control
+  // attributes to be present in the On/Off cluster, otherwise ZBOSS silently ignores it.
+  uint16_t on_time = 0;
+  uint8_t global_scene_ctrl = 0;
+  esp_zb_attribute_list_t *on_off_cluster = esp_zb_cluster_list_get_cluster(_cluster_list, ESP_ZB_ZCL_CLUSTER_ID_ON_OFF, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+  esp_zb_on_off_cluster_add_attr(on_off_cluster, ESP_ZB_ZCL_ATTR_ON_OFF_ON_TIME, &on_time);
+  esp_zb_on_off_cluster_add_attr(on_off_cluster, ESP_ZB_ZCL_ATTR_ON_OFF_GLOBAL_SCENE_CONTROL, &global_scene_ctrl);
 
   //Add support for hue and saturation
   uint8_t hue = 0;
@@ -40,6 +52,23 @@ ZigbeeColorDimmableLight::ZigbeeColorDimmableLight(uint8_t endpoint) : ZigbeeEP(
   esp_zb_color_control_cluster_add_attr(color_cluster, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_TEMP_PHYSICAL_MAX_MIREDS_ID, &max_temp);
   uint8_t color_mode = ESP_ZB_ZCL_COLOR_CONTROL_COLOR_MODE_DEFAULT_VALUE;
   esp_zb_color_control_cluster_add_attr(color_cluster, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_MODE_ID, &color_mode);
+
+  // Extended color attributes — mandatory for ZHA Extended Color Light (0x010D)
+  // and required by the Philips Hue bridge during its device interview.
+  uint16_t enhanced_hue        = ESP_ZB_ZCL_COLOR_CONTROL_ENHANCED_CURRENT_HUE_DEFAULT_VALUE;
+  uint8_t  enhanced_color_mode = ESP_ZB_ZCL_COLOR_CONTROL_ENHANCED_COLOR_MODE_DEFAULT_VALUE;
+  uint8_t  color_loop_active   = ESP_ZB_ZCL_COLOR_CONTROL_COLOR_LOOP_ACTIVE_DEFAULT_VALUE;
+  uint8_t  color_loop_dir      = ESP_ZB_ZCL_COLOR_CONTROL_COLOR_LOOP_DIRECTION_DEFAULT_VALUE;
+  uint16_t color_loop_time     = ESP_ZB_ZCL_COLOR_CONTROL_COLOR_LOOP_TIME_DEF_VALUE;
+  uint16_t color_loop_start    = ESP_ZB_ZCL_COLOR_CONTROL_COLOR_LOOP_START_DEF_VALUE;
+  uint16_t color_loop_stored   = ESP_ZB_ZCL_COLOR_CONTROL_COLOR_LOOP_STORED_ENHANCED_HUE_DEFAULT_VALUE;
+  esp_zb_color_control_cluster_add_attr(color_cluster, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_ENHANCED_CURRENT_HUE_ID,           &enhanced_hue);
+  esp_zb_color_control_cluster_add_attr(color_cluster, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_ENHANCED_COLOR_MODE_ID,            &enhanced_color_mode);
+  esp_zb_color_control_cluster_add_attr(color_cluster, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_LOOP_ACTIVE_ID,              &color_loop_active);
+  esp_zb_color_control_cluster_add_attr(color_cluster, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_LOOP_DIRECTION_ID,           &color_loop_dir);
+  esp_zb_color_control_cluster_add_attr(color_cluster, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_LOOP_TIME_ID,                &color_loop_time);
+  esp_zb_color_control_cluster_add_attr(color_cluster, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_LOOP_START_ENHANCED_HUE_ID,  &color_loop_start);
+  esp_zb_color_control_cluster_add_attr(color_cluster, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_LOOP_STORED_ENHANCED_HUE_ID, &color_loop_stored);
 
   _ep_config = {
     .endpoint = _endpoint, .app_profile_id = ESP_ZB_AF_HA_PROFILE_ID, .app_device_id = ESP_ZB_HA_COLOR_DIMMABLE_LIGHT_DEVICE_ID, .app_device_version = 0

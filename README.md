@@ -36,12 +36,12 @@ Edit [src/config.h](src/config.h) before building:
 | Define | Default | Description |
 |---|---|---|
 | `LED_DATA_PIN` | `8` | GPIO connected to WS2812B DIN |
-| `NUM_LEDS` | `18` | Number of LEDs in the strip |
+| `NUM_LEDS` | `8` | Number of LEDs in the strip |
 | `COLOR_ORDER` | `GRB` | Byte order (WS2812B = GRB) |
 | `DEFAULT_BRIGHTNESS` | `50` | Power-on brightness (0–255) |
 | `ZIGBEE_ENDPOINT` | `10` | Zigbee endpoint number |
-| `ZIGBEE_CHANNEL` | `11` | Zigbee channel (must match coordinator) |
-| `DEVICE_MANUFACTURER` | `"Espressif"` | Shown in Hue app / z2m |
+| `ZIGBEE_CHANNEL` | `25` | Zigbee channel (must match coordinator) |
+| `DEVICE_MANUFACTURER` | `"JINX"` | Shown in Hue app / z2m |
 | `DEVICE_MODEL` | `"ZBLightStrip"` | Shown in Hue app / z2m |
 | `FACTORY_RESET_PIN` | `9` | BOOT button GPIO |
 
@@ -65,10 +65,11 @@ pio device monitor
 ```
 
 > The project includes a patched copy of the Arduino Zigbee library under
-> `lib/Zigbee/`. PlatformIO automatically uses this instead of the global
-> package. The patch adds support for the `TriggerEffect` ZCL command
-> (`ESP_ZB_CORE_IDENTIFY_EFFECT_CB_ID`), which is missing from the upstream
-> library.
+> `lib/Zigbee/`. PlatformIO uses it automatically in place of the global package.
+> Patches applied vs upstream:
+> - **`TriggerEffect` ZCL command** (`ESP_ZB_CORE_IDENTIFY_EFFECT_CB_ID`) — added to `ZigbeeHandlers.cpp`; missing from upstream
+> - **Philips Hue TC link key** — `ZigbeeCore.cpp` calls `esp_zb_enable_joining_to_distributed()` and sets the ZLL commissioning key before stack start; without this the bridge sends an immediate `ZDO Leave`
+> - **`On/Off` cluster attributes** — `on_time` and `global_scene_control` added to `ZigbeeColorDimmableLight`; required for the Hue "Off with Effect" command (ZCL 0x40) to be processed
 
 ## Pairing
 
@@ -89,8 +90,14 @@ pio device monitor
 1. Set `ZIGBEE_CHANNEL` to match your bridge (Hue app → Settings →
    Hue Bridges → ⓘ → Zigbee channel — typically 15, 20, or 25)
 2. Build and upload
-3. Hue app → Settings → Light setup → **Add light → Search**
-4. While the search is active, press **RESET** on the ESP32-H2
+3. If the device has previously been on a different network, hold **BOOT** for
+   3 s to factory-reset it first
+4. Hue app → Settings → Light setup → **Add light → Search**
+5. The device joins automatically — no button press required during search
+
+> The firmware includes all three compatibility fixes required by the Hue bridge:
+> ZLL TC link key, `app_device_version = 1`, and On/Off cluster attributes for
+> "Off with Effect". No bridge configuration changes are needed.
 
 ## Zigbee Features
 

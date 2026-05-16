@@ -60,7 +60,7 @@
       .color_mode = ESP_ZB_ZCL_COLOR_CONTROL_COLOR_MODE_DEFAULT_VALUE,                   \
       .options = ESP_ZB_ZCL_COLOR_CONTROL_OPTIONS_DEFAULT_VALUE,                         \
       .enhanced_color_mode = ESP_ZB_ZCL_COLOR_CONTROL_ENHANCED_COLOR_MODE_DEFAULT_VALUE, \
-      .color_capabilities = 0x0009,                                                      \
+      .color_capabilities = 0x001F,  /* all 5 capability bits: HS|EH|CL|XY|CT */        \
     },                                                                                   \
   }
 

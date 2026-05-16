@@ -130,6 +130,15 @@ static void applyLEDs() {
 
 // ── Zigbee callbacks — only update state; loop() drives the LEDs ──────────
 
+// Basic on/off callback — registered with the current ZigbeeLight endpoint
+void onOnOffChange(bool state) {
+    Serial.printf("OnOff state=%d\n", state);
+    effectState.active = Effect::NONE;
+    lightState.on = state;
+    lightState.dirty = true;
+}
+
+// ── Colour callbacks (kept for future use, not registered) ───────────────
 // Called for colour scenes (XY → RGB conversion handled by the stack)
 void onRgbChange(bool state, uint8_t r, uint8_t g, uint8_t b, uint8_t level) {
     Serial.printf("RGB  state=%d  r=%u g=%u b=%u  level=%u\n", state, r, g, b, level);
@@ -139,6 +148,22 @@ void onRgbChange(bool state, uint8_t r, uint8_t g, uint8_t b, uint8_t level) {
     lightState.g     = g;
     lightState.b     = b;
     lightState.level = level;
+    lightState.isCT  = false;
+    lightState.dirty = true;
+}
+
+// Called when Hue bridge sends Move-to-Hue-and-Saturation / Move-Hue commands
+void onHsvChange(bool state, uint8_t hue, uint8_t sat, uint8_t value) {
+    Serial.printf("HSV  state=%d  h=%u s=%u v=%u\n", state, hue, sat, value);
+    effectState.active = Effect::NONE;
+    // Convert HSV to RGB with full value; the level attribute handles brightness.
+    CRGB rgb;
+    hsv2rgb_rainbow(CHSV(hue, sat, 255), rgb);
+    lightState.on    = state;
+    lightState.r     = rgb.r;
+    lightState.g     = rgb.g;
+    lightState.b     = rgb.b;
+    lightState.level = value;
     lightState.isCT  = false;
     lightState.dirty = true;
 }
@@ -178,23 +203,19 @@ void setup() {
     pinMode(FACTORY_RESET_PIN, INPUT_PULLUP);
 
     // ── Zigbee endpoint configuration ────────────────────────────────────
-    // Enable XY colour mode + colour temperature — both required for the
-    // Philips Hue bridge to accept and fully control the light.
-    zbLight.setLightColorCapabilities(
-        ZIGBEE_COLOR_CAPABILITY_X_Y |
-        ZIGBEE_COLOR_CAPABILITY_COLOR_TEMP);
-
-    // Typical LED strip colour-temperature range
-    zbLight.setLightColorTemperatureRange(
-        kelvinToMireds(6500),   // cool white → ~153 mireds  (min)
-        kelvinToMireds(2000));  // warm white → ~500 mireds  (max)
-
     // Device name shown in the Hue app
     zbLight.setManufacturerAndModel(DEVICE_MANUFACTURER, DEVICE_MODEL);
 
     zbLight.onLightChangeRgb(onRgbChange);
+    zbLight.onLightChangeHsv(onHsvChange);
     zbLight.onLightChangeTemp(onTempChange);
     zbLight.onIdentify(onIdentify);
+
+    // Declare mains power and firmware versions — read by the Hue bridge
+    // during device interview (Basic cluster attribute read).
+    zbLight.setPowerSource(ZB_POWER_SOURCE_MAINS);
+    zbLight.setVersion(1);
+    zbLight.setHardwareVersion(1);
 
     Zigbee.addEndpoint(&zbLight);
 
