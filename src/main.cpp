@@ -152,6 +152,11 @@ static void tickEffect() {
 }
 
 // ── NVS state persistence ────────────────────────────────────────────────
+static void clearAppNVS() {
+    prefs.begin("light",  false); prefs.clear(); prefs.end();
+    prefs.begin("scenes", false); prefs.clear(); prefs.end();
+}
+
 static void saveState() {
     prefs.begin("light", false);
     prefs.putBool("on",     lightState.on);
@@ -188,11 +193,17 @@ static void applyLEDs() {
         return;
     }
     if (lightState.isCT) {
+        // Planckian-locus approximation for warm→cool white on an RGB LED strip.
+        // 2000K: R=255 G=137 B=14  (warm amber-white)
+        // 4000K: R=255 G=209 B=163 (neutral white)
+        // 6500K: R=255 G=252 B=255 (daylight white)
         uint16_t kelvin = miredsToKelvin(lightState.mireds);
-        uint8_t warm = (uint8_t)constrain(map(kelvin, 2000, 6500, 255, 0), 0, 255);
-        uint8_t cool = (uint8_t)constrain(map(kelvin, 2000, 6500,   0, 255), 0, 255);
+        float t = constrain((float)(kelvin - 2000) / (6500.0f - 2000.0f), 0.0f, 1.0f);
         float b = lightState.level / 255.0f;
-        fill_solid(leds, NUM_LEDS, CRGB((uint8_t)(warm*b), (uint8_t)(warm*b), (uint8_t)(cool*b)));
+        uint8_t rr = 255;
+        uint8_t gg = (uint8_t)(137.0f + t * (252.0f - 137.0f));
+        uint8_t bb = (uint8_t)(14.0f  + t * (255.0f - 14.0f));
+        fill_solid(leds, NUM_LEDS, CRGB((uint8_t)(rr*b), (uint8_t)(gg*b), (uint8_t)(bb*b)));
     } else {
         float b = lightState.level / 255.0f;
         fill_solid(leds, NUM_LEDS,
@@ -317,9 +328,7 @@ void setup() {
     zbLight.setLightColorTemperatureRange(153, 500);
 
     Zigbee.addEndpoint(&zbLight);
-
-    // Restrict scan to the coordinator's channel for fast joining.
-    Zigbee.setPrimaryChannelMask(1 << ZIGBEE_CHANNEL);
+    Zigbee.onFactoryReset(clearAppNVS);
 
     // This is a mains-powered device — disable radio sleep so the coordinator
     // can reach it at any time (required for zigbee2mqtt interview to succeed).
@@ -370,6 +379,8 @@ void loop() {
     if (Zigbee.connected() && !wasConnected) {
         wasConnected = true;
         Serial.println("Zigbee network connected!");
+        effectState.active    = Effect::BLINK;
+        effectState.startedAt = millis();
     }
 
     tickEffect();

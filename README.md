@@ -1,8 +1,8 @@
 # Zigbee WS2812B Light Strip
 
 ESP32-H2 firmware for a Zigbee-controlled WS2812B LED strip. Integrates with
-**zigbee2mqtt** (Home Assistant) and the **Philips Hue bridge** as a standard
-Color Dimmable Light (ZHA device type 0x0102).
+**zigbee2mqtt** (Home Assistant) and the **Philips Hue bridge** as an
+Extended Color Light (ZHA device type 0x010D).
 
 ## Hardware
 
@@ -73,6 +73,10 @@ pio device monitor
 > - **`On/Off` cluster attributes** — `on_time` and `global_scene_control` added to `ZigbeeColorDimmableLight`; required for the Hue "Off with Effect" command (ZCL 0x40) to be processed
 > - **Color capabilities guard** — `setLightColorCapabilities(0x001F)` exposed; without it the internal guard silently drops all HS and CT commands from the bridge
 > - **CT range** — `setLightColorTemperatureRange(153, 500)` exposed; advertises the physical 2000–6500 K range to the bridge and Google Home
+> - **ZHA device type 0x010D** — `app_device_id` set to Extended Color Light in `ZigbeeColorDimmableLight`; enables the colour-temperature slider in the Hue app (0x0102 suppresses it)
+> - **CT-to-RGB formula** — Planckian-locus approximation replaces the old warm/cool formula; correctly maps 2000–6500 K to perceptually accurate RGB on WS2812B
+> - **Color gamut primaries** — `NumberOfPrimaries` (0x0010) and `Primary1–3 X/Y/Intensity` (0x0011–0x001B) added to the Color Control cluster with Hue Gamut C coordinates; allows the bridge to determine the device's color gamut
+> - **`onFactoryReset` callback** — `ZigbeeCore` now exposes `onFactoryReset(fn)`, invoked before `esp_zb_factory_reset()` on both local button press and remote ZDO Leave; used to erase the `"light"` and `"scenes"` NVS namespaces so stale state does not survive a re-pair
 
 ## Pairing
 
@@ -98,9 +102,17 @@ pio device monitor
 4. Hue app → Settings → Light setup → **Add light → Search**
 5. The device joins automatically — no button press required during search
 
-> The firmware includes all three compatibility fixes required by the Hue bridge:
-> ZLL TC link key, `app_device_version = 1`, and On/Off cluster attributes for
-> "Off with Effect". No bridge configuration changes are needed.
+> The firmware includes all compatibility fixes required by the Hue bridge:
+> ZLL TC link key, ZHA device type 0x010D (Extended Color Light, required for the
+> CT slider), On/Off cluster attributes for "Off with Effect", and color gamut
+> primaries. No bridge configuration changes are needed.
+>
+> When the device successfully joins the network it blinks white three times as
+> visual confirmation.
+>
+> When the device is removed from the bridge (ZDO Leave) or factory-reset via
+> the BOOT button, all stored state and scenes are wiped from NVS so the next
+> pair starts clean.
 
 ## Zigbee Features
 
@@ -112,7 +124,7 @@ pio device monitor
 | Colour temperature | `ColorControl` (0x0300) | 153–500 mireds (2000–6500 K) |
 | Color Loop | `ColorControl` (0x0300) | Rainbow cycle via ZCL Color Loop Set (0x44) |
 | Scenes | `Scenes` (0x0005) | Store / recall via Hue scenes |
-| State persistence | NVS | On/RGB/level/CT/mireds saved across reboots |
+| State persistence | NVS | On/RGB/level/CT/mireds saved across reboots; wiped on factory reset or network leave |
 | Identify / Effects | `Identify` (0x0003) | See effects table below |
 
 ### Identify Effects

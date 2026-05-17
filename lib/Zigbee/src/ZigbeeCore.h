@@ -122,6 +122,9 @@ private:
   // Global default response callback
   void (*_global_default_response_cb)(zb_cmd_type_t resp_to_cmd, esp_zb_zcl_status_t status, uint8_t endpoint, uint16_t cluster);
 
+  // Factory reset callback — called just before the Zigbee stack wipes its NVS and reboots
+  void (*_factory_reset_cb)(void);
+
   bool zigbeeInit(esp_zb_cfg_t *zb_cfg, bool erase_nvs);
   static void scanCompleteCallback(esp_zb_zdp_status_t zdo_status, uint8_t count, esp_zb_network_descriptor_t *nwk_descriptor);
   const char *getDeviceTypeString(esp_zb_ha_standard_devices_t deviceId);
@@ -207,6 +210,11 @@ public:
   // Set global default response callback
   void onGlobalDefaultResponse(void (*callback)(zb_cmd_type_t resp_to_cmd, esp_zb_zcl_status_t status, uint8_t endpoint, uint16_t cluster)) {
     _global_default_response_cb = callback;
+  }
+
+  // Register a callback to be called just before factory reset wipes NVS
+  void onFactoryReset(voidFuncPtr callback) {
+    _factory_reset_cb = callback;
   }
 
   // Call global default response callback (for internal use)

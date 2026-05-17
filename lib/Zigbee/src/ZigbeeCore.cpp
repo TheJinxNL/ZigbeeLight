@@ -49,6 +49,7 @@ ZigbeeCore::ZigbeeCore() {
   _debug = false;
   _allow_multi_endpoint_binding = false;
   _global_default_response_cb = nullptr;  // Initialize global callback to nullptr
+  _factory_reset_cb = nullptr;
   if (!lock) {
     lock = xSemaphoreCreateBinary();
     if (lock == NULL) {
@@ -509,6 +510,9 @@ bool zb_apsde_data_indication_handler(esp_zb_apsde_data_ind_t ind) {
 }
 
 void ZigbeeCore::factoryReset(bool restart) {
+  if (_factory_reset_cb) {
+    _factory_reset_cb();
+  }
   if (restart) {
     log_v("Factory resetting Zigbee stack, device will reboot");
     esp_zb_factory_reset();

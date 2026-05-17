@@ -70,8 +70,39 @@ ZigbeeColorDimmableLight::ZigbeeColorDimmableLight(uint8_t endpoint) : ZigbeeEP(
   esp_zb_color_control_cluster_add_attr(color_cluster, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_LOOP_START_ENHANCED_HUE_ID,  &color_loop_start);
   esp_zb_color_control_cluster_add_attr(color_cluster, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_LOOP_STORED_ENHANCED_HUE_ID, &color_loop_stored);
 
+  // Colour-gamut declaration — required by the Hue bridge v2 to classify this
+  // device as Entertainment-capable.  Without NumberOfPrimaries > 0 the bridge
+  // cannot determine the gamut and excludes the light from Entertainment zones.
+  // Values are CIE xy × 65536, matching Hue Gamut C (wide-gamut RGB LEDs,
+  // also representative of the WS2812B primaries).
+  uint8_t  num_primaries = 3;
+  uint16_t p1x = 0xB109;  // Red:   CIE x = 0.6915
+  uint16_t p1y = 0x4EEF;  // Red:   CIE y = 0.3083
+  uint8_t  p1i = 0xFE;
+  uint16_t p2x = 0x2B85;  // Green: CIE x = 0.1700
+  uint16_t p2y = 0xB333;  // Green: CIE y = 0.7000
+  uint8_t  p2i = 0xFE;
+  uint16_t p3x = 0x2715;  // Blue:  CIE x = 0.1532
+  uint16_t p3y = 0x0C4A;  // Blue:  CIE y = 0.0480
+  uint8_t  p3i = 0xFE;
+  esp_zb_color_control_cluster_add_attr(color_cluster, 0x0010 /* NumberOfPrimaries */,  &num_primaries);
+  esp_zb_color_control_cluster_add_attr(color_cluster, 0x0011 /* Primary1X */,         &p1x);
+  esp_zb_color_control_cluster_add_attr(color_cluster, 0x0012 /* Primary1Y */,         &p1y);
+  esp_zb_color_control_cluster_add_attr(color_cluster, 0x0013 /* Primary1Intensity */, &p1i);
+  esp_zb_color_control_cluster_add_attr(color_cluster, 0x0015 /* Primary2X */,         &p2x);
+  esp_zb_color_control_cluster_add_attr(color_cluster, 0x0016 /* Primary2Y */,         &p2y);
+  esp_zb_color_control_cluster_add_attr(color_cluster, 0x0017 /* Primary2Intensity */, &p2i);
+  esp_zb_color_control_cluster_add_attr(color_cluster, 0x0019 /* Primary3X */,         &p3x);
+  esp_zb_color_control_cluster_add_attr(color_cluster, 0x001A /* Primary3Y */,         &p3y);
+  esp_zb_color_control_cluster_add_attr(color_cluster, 0x001B /* Primary3Intensity */, &p3i);
+
   _ep_config = {
-    .endpoint = _endpoint, .app_profile_id = ESP_ZB_AF_HA_PROFILE_ID, .app_device_id = ESP_ZB_HA_COLOR_DIMMABLE_LIGHT_DEVICE_ID, .app_device_version = 0
+    .endpoint = _endpoint, .app_profile_id = ESP_ZB_AF_HA_PROFILE_ID,
+    // 0x010D = Extended Color Light (ZHA) — advertises XY + HS + CT support.
+    // Philips Hue uses this device type to decide whether to show both the
+    // colour wheel and the colour-temperature slider.  0x0102 (Color Dimmable
+    // Light) causes Hue to suppress the CT slider entirely.
+    .app_device_id = 0x010D, .app_device_version = 0
   };
 
   //set default values
