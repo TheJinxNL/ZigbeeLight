@@ -81,6 +81,22 @@ static esp_err_t zb_action_handler(esp_zb_core_action_callback_id_t callback_id,
     case ESP_ZB_CORE_CMD_WRITE_ATTR_RESP_CB_ID:       ret = zb_cmd_write_attr_resp_handler((esp_zb_zcl_cmd_write_attr_resp_message_t *)message); break;
     case ESP_ZB_CORE_CMD_PRIVILEGE_COMMAND_REQ_CB_ID: ret = zb_privilege_command_handler((esp_zb_zcl_privilege_command_message_t *)message); break;
     case ESP_ZB_CORE_CMD_CUSTOM_CLUSTER_REQ_CB_ID:    ret = zb_custom_cluster_command_handler((esp_zb_zcl_custom_cluster_command_message_t *)message); break;
+    case ESP_ZB_CORE_SCENES_STORE_SCENE_CB_ID: {
+      extern void (*zigbee_scene_store_cb)(uint16_t, uint8_t);
+      if (zigbee_scene_store_cb) {
+        const esp_zb_zcl_store_scene_message_t *m = (const esp_zb_zcl_store_scene_message_t *)message;
+        zigbee_scene_store_cb(m->group_id, m->scene_id);
+      }
+      break;
+    }
+    case ESP_ZB_CORE_SCENES_RECALL_SCENE_CB_ID: {
+      extern void (*zigbee_scene_recall_cb)(uint16_t, uint8_t);
+      if (zigbee_scene_recall_cb) {
+        const esp_zb_zcl_recall_scene_message_t *m = (const esp_zb_zcl_recall_scene_message_t *)message;
+        zigbee_scene_recall_cb(m->group_id, m->scene_id);
+      }
+      break;
+    }
     case ESP_ZB_CORE_IDENTIFY_EFFECT_CB_ID: {
       extern void (*zigbee_identify_effect_cb)(uint8_t, uint8_t);
       if (zigbee_identify_effect_cb) {

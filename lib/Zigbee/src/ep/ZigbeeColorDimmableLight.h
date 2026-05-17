@@ -85,6 +85,10 @@ typedef void (*ZigbeeColorLightRgbCallback)(bool state, uint8_t red, uint8_t gre
 typedef void (*ZigbeeColorLightHsvCallback)(bool state, uint8_t hue, uint8_t saturation, uint8_t value);
 // Temperature callback: (state, level, color_temperature_in_mireds)
 typedef void (*ZigbeeColorLightTempCallback)(bool state, uint8_t level, uint16_t color_temperature);
+// Color Loop callback: (active, direction, time_s)
+// direction: 0 = decrement hue, 1 = increment hue (matches ZCL Color Loop Direction attr)
+// time_s: seconds for one full hue cycle (ZCL Color Loop Time attr, default 25)
+typedef void (*ZigbeeColorLoopCallback)(bool active, uint8_t direction, uint16_t time_s);
 
 class ZigbeeColorDimmableLight : public ZigbeeEP {
 public:
@@ -106,6 +110,9 @@ public:
   }
   void onLightChangeTemp(ZigbeeColorLightTempCallback callback) {
     _on_light_change_temp = callback;
+  }
+  void onColorLoop(ZigbeeColorLoopCallback callback) {
+    _on_color_loop = callback;
   }
   void restoreLight() {
     lightChangedByMode();
@@ -176,6 +183,8 @@ private:
   ZigbeeColorLightHsvCallback _on_light_change_hsv;
   //callback function to be called on light change for TEMP (State, Level, Temperature)
   ZigbeeColorLightTempCallback _on_light_change_temp;
+  // callback for ZCL Color Loop Set command (active, direction, time_s)
+  ZigbeeColorLoopCallback _on_color_loop;
 
   bool _current_state;
   uint8_t _current_level;

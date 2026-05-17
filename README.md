@@ -68,8 +68,11 @@ pio device monitor
 > `lib/Zigbee/`. PlatformIO uses it automatically in place of the global package.
 > Patches applied vs upstream:
 > - **`TriggerEffect` ZCL command** (`ESP_ZB_CORE_IDENTIFY_EFFECT_CB_ID`) — added to `ZigbeeHandlers.cpp`; missing from upstream
+> - **Scene store / recall** (`ESP_ZB_CORE_SCENES_STORE_SCENE_CB_ID` / `_RECALL_SCENE_CB_ID`) — added to `ZigbeeHandlers.cpp`; missing from upstream
 > - **Philips Hue TC link key** — `ZigbeeCore.cpp` calls `esp_zb_enable_joining_to_distributed()` and sets the ZLL commissioning key before stack start; without this the bridge sends an immediate `ZDO Leave`
 > - **`On/Off` cluster attributes** — `on_time` and `global_scene_control` added to `ZigbeeColorDimmableLight`; required for the Hue "Off with Effect" command (ZCL 0x40) to be processed
+> - **Color capabilities guard** — `setLightColorCapabilities(0x001F)` exposed; without it the internal guard silently drops all HS and CT commands from the bridge
+> - **CT range** — `setLightColorTemperatureRange(153, 500)` exposed; advertises the physical 2000–6500 K range to the bridge and Google Home
 
 ## Pairing
 
@@ -105,8 +108,11 @@ pio device monitor
 |---|---|---|
 | On / Off | `OnOff` (0x0006) | |
 | Brightness | `LevelControl` (0x0008) | 0–255 |
-| RGB colour | `ColorControl` (0x0300) | XY colour space |
+| RGB colour | `ColorControl` (0x0300) | Hue/Saturation, Enhanced Hue, XY |
 | Colour temperature | `ColorControl` (0x0300) | 153–500 mireds (2000–6500 K) |
+| Color Loop | `ColorControl` (0x0300) | Rainbow cycle via ZCL Color Loop Set (0x44) |
+| Scenes | `Scenes` (0x0005) | Store / recall via Hue scenes |
+| State persistence | NVS | On/RGB/level/CT/mireds saved across reboots |
 | Identify / Effects | `Identify` (0x0003) | See effects table below |
 
 ### Identify Effects
@@ -123,10 +129,25 @@ ZCL `TriggerEffect` commands:
 | 0xfe | `finish_effect` | Stop effect, restore light state |
 | 0xff | `stop_effect` | Stop effect, restore light state |
 
-> **Note:** The `colorloop` and `stop_colorloop` entries shown in zigbee2mqtt do
-> not send a `TriggerEffect` command and have no effect on this firmware.
-> Use `okay` to start the rainbow and `stop_effect` to stop it.
-> Any normal light command (colour, brightness, on/off) also stops the effect.
+> Any normal light command (colour, brightness, on/off) also stops an active effect.
+
+### Color Loop
+
+Activate the color loop from the Hue app's scene / entertainment effects menu.
+The bridge sends a ZCL **Color Loop Set** command (0x44) which writes the
+`ColorLoopActive` attribute. The firmware then cycles the full hue wheel across
+all LEDs continuously. Direction and speed are controlled by the `ColorLoopDirection`
+and `ColorLoopTime` ZCL attributes sent with the command.
+
+The loop runs until the bridge sends `ColorLoopActive = 0`, or until any normal
+colour / brightness / on/off command is received.
+
+### Scenes
+
+The Hue app stores and recalls scenes using ZCL **Store Scene** and **Recall Scene**
+commands. This firmware saves a complete light-state snapshot (on/off, RGB, level,
+colour temperature, CT mode) in NVS keyed by `(group_id, scene_id)` and restores it
+on recall. An arbitrary number of scenes can be stored up to the NVS capacity.
 
 ## Partition Table
 

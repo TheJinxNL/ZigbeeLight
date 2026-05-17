@@ -84,9 +84,10 @@ ZigbeeColorDimmableLight::ZigbeeColorDimmableLight(uint8_t endpoint) : ZigbeeEP(
   _color_capabilities = ZIGBEE_COLOR_CAPABILITY_X_Y;    //default XY color supported only
 
   // Initialize callbacks to nullptr
-  _on_light_change_rgb = nullptr;
-  _on_light_change_hsv = nullptr;
+  _on_light_change_rgb  = nullptr;
+  _on_light_change_hsv  = nullptr;
   _on_light_change_temp = nullptr;
+  _on_color_loop        = nullptr;
 }
 
 uint16_t ZigbeeColorDimmableLight::getCurrentColorX() {
@@ -251,6 +252,19 @@ void ZigbeeColorDimmableLight::zbAttributeSet(const esp_zb_zcl_set_attr_value_me
       if (_current_color_temperature != light_color_temp) {
         _current_color_temperature = light_color_temp;
         lightChangedTemp();
+      }
+      return;
+    } else if (message->attribute.id == ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_LOOP_ACTIVE_ID
+               && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_U8) {
+      if (_on_color_loop) {
+        uint8_t  active    = *(uint8_t *)message->attribute.data.value;
+        uint8_t  direction = *(uint8_t *)esp_zb_zcl_get_attribute(
+          _endpoint, ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+          ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_LOOP_DIRECTION_ID)->data_p;
+        uint16_t time_s    = *(uint16_t *)esp_zb_zcl_get_attribute(
+          _endpoint, ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+          ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_LOOP_TIME_ID)->data_p;
+        _on_color_loop(active != 0, direction, time_s);
       }
       return;
     } else {

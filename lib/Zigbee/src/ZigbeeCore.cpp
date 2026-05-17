@@ -284,13 +284,6 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct) {
   //router variables
   esp_zb_zdo_signal_device_update_params_t *dev_update_params = NULL;
 
-  // Log every signal to Serial with timestamp for diagnostics
-  Serial.printf("[ZB +%lums] sig=0x%04x (%s) st=%s\n",
-    (unsigned long)millis(),
-    (uint32_t)sig_type,
-    esp_zb_zdo_signal_to_string(sig_type),
-    esp_err_to_name(err_status));
-
   //main switch
   switch (sig_type) {
     case ESP_ZB_ZDO_SIGNAL_SKIP_STARTUP:  // Common
@@ -367,14 +360,11 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct) {
             extended_pan_id[7], extended_pan_id[6], extended_pan_id[5], extended_pan_id[4], extended_pan_id[3], extended_pan_id[2], extended_pan_id[1],
             extended_pan_id[0], esp_zb_get_pan_id(), esp_zb_get_current_channel(), esp_zb_get_short_address()
           );
-          Serial.printf("[ZB] Joined network! PAN:0x%04x ch:%u addr:0x%04x\n",
-            esp_zb_get_pan_id(), esp_zb_get_current_channel(), esp_zb_get_short_address());
           Zigbee._connected = true;
           // Set channel mask and write to NVRAM, so that the device will re-join the network faster after reboot (scan only on the current channel)
           Zigbee.setNVRAMChannelMask(1 << esp_zb_get_current_channel());
         } else {
           log_i("Network steering was not successful (status: %s)", esp_err_to_name(err_status));
-          Serial.printf("[ZB] Steering FAILED status=%s\n", esp_err_to_name(err_status));
           esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb, ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
         }
       }
@@ -481,11 +471,9 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct) {
         log_v("Signal to leave the network, leave type: %u", leave_params->leave_type);
         if (leave_params->leave_type == ESP_ZB_NWK_LEAVE_TYPE_RESET) {  // Leave without rejoin -> Factory reset
           log_i("Leave without rejoin, factory reset the device");
-          Serial.println("[ZB] LEAVE received: no-rejoin -> factory reset");
           Zigbee.factoryReset(true);
         } else {  // Leave with rejoin -> Rejoin the network, only reboot the device
           log_i("Leave with rejoin, only reboot the device");
-          Serial.println("[ZB] LEAVE received: with-rejoin -> reboot");
           ESP.restart();
         }
       }
@@ -498,10 +486,6 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct) {
 
 // APS DATA INDICATION HANDLER to catch bind/unbind requests
 bool zb_apsde_data_indication_handler(esp_zb_apsde_data_ind_t ind) {
-  Serial.printf("[APS +%lums] src=0x%04x ep=%u->%u profile=0x%04x cluster=0x%04x len=%u st=%u\n",
-    (unsigned long)millis(),
-    ind.src_short_addr, ind.src_endpoint, ind.dst_endpoint,
-    ind.profile_id, ind.cluster_id, (unsigned)ind.asdu_length, ind.status);
   if (Zigbee.getDebugMode()) {
     log_d("APSDE INDICATION - Received APSDE-DATA indication, status: %u", ind.status);
     log_d(

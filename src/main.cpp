@@ -26,11 +26,13 @@
 
 #include "Zigbee.h"
 #include <FastLED.h>
+#include <Preferences.h>
 #include "config.h"
 
 // ── Globals ───────────────────────────────────────────────────────────────
 CRGB leds[NUM_LEDS];
 ZigbeeColorDimmableLight zbLight(ZIGBEE_ENDPOINT);
+static Preferences prefs;
 
 // ── LED state (written from Zigbee callbacks, read from loop) ─────────────
 struct LightState {
@@ -43,14 +45,53 @@ struct LightState {
 } lightState;
 
 // ── Effect state ──────────────────────────────────────────────────────────
-enum class Effect : uint8_t { NONE, BLINK, BREATHE, RAINBOW, CHANNEL_CHANGE };
-struct { volatile Effect active = Effect::NONE; uint32_t startedAt = 0; } effectState;
+enum class Effect : uint8_t { NONE, BLINK, BREATHE, RAINBOW, CHANNEL_CHANGE, COLOR_LOOP };
+struct {
+    volatile Effect active    = Effect::NONE;
+    uint32_t        startedAt = 0;
+    uint8_t         loopDir   = 1;   // 0 = decrement hue, 1 = increment (ZCL Color Loop Direction)
+    uint16_t        loopTime  = 25;  // full hue cycle in seconds (ZCL Color Loop Time default = 25)
+} effectState;
 
-// Function pointer called by patched ZigbeeHandlers.cpp for TriggerEffect commands
+// Function pointers called by ZigbeeHandlers.cpp for scene and identify commands
 void (*zigbee_identify_effect_cb)(uint8_t, uint8_t) = nullptr;
+void (*zigbee_scene_store_cb)(uint16_t, uint8_t)    = nullptr;
+void (*zigbee_scene_recall_cb)(uint16_t, uint8_t)   = nullptr;
+
+// ── Scene store / recall ──────────────────────────────────────────────────
+// Scene state blob stored in NVS namespace "scenes", key "sGGGGSS" (hex).
+struct SceneState { bool on; uint8_t r, g, b, level; uint16_t mireds; bool isCT; };
+
+static void onStoreScene(uint16_t group_id, uint8_t scene_id) {
+    char key[10];
+    snprintf(key, sizeof(key), "s%04x%02x", group_id, scene_id);
+    SceneState snap = { lightState.on, lightState.r, lightState.g, lightState.b,
+                        lightState.level, lightState.mireds, lightState.isCT };
+    prefs.begin("scenes", false);
+    prefs.putBytes(key, &snap, sizeof(snap));
+    prefs.end();
+}
+
+static void onRecallScene(uint16_t group_id, uint8_t scene_id) {
+    char key[10];
+    snprintf(key, sizeof(key), "s%04x%02x", group_id, scene_id);
+    SceneState snap;
+    prefs.begin("scenes", true);
+    size_t len = prefs.getBytes(key, &snap, sizeof(snap));
+    prefs.end();
+    if (len != sizeof(snap)) return;  // scene not stored yet
+    lightState.on     = snap.on;
+    lightState.r      = snap.r;
+    lightState.g      = snap.g;
+    lightState.b      = snap.b;
+    lightState.level  = snap.level;
+    lightState.mireds = snap.mireds;
+    lightState.isCT   = snap.isCT;
+    effectState.active = Effect::NONE;
+    lightState.dirty  = true;
+}
 
 static void onIdentifyEffect(uint8_t effectId, uint8_t /*variant*/) {
-    Serial.printf("Effect ID: 0x%02X\n", effectId);
     switch (effectId) {
         case 0x00: effectState.active = Effect::BLINK;          break;
         case 0x01: effectState.active = Effect::BREATHE;        break;
@@ -97,8 +138,42 @@ static void tickEffect() {
             if (ms >= 1500) { effectState.active = Effect::NONE; lightState.dirty = true; }
             break;
         }
+        case Effect::COLOR_LOOP: {
+            uint32_t cycle_ms = (uint32_t)effectState.loopTime * 1000;
+            float    frac     = (float)(ms % cycle_ms) / (float)cycle_ms;
+            uint8_t  hue      = (uint8_t)(frac * 255.0f);
+            if (effectState.loopDir == 0) hue = 255 - hue;
+            fill_rainbow(leds, NUM_LEDS, hue, 255 / NUM_LEDS);
+            FastLED.show();
+            break;  // runs until onColorLoopChange(false, ...) stops it
+        }
         default: break;
     }
+}
+
+// ── NVS state persistence ────────────────────────────────────────────────
+static void saveState() {
+    prefs.begin("light", false);
+    prefs.putBool("on",     lightState.on);
+    prefs.putUChar("r",     lightState.r);
+    prefs.putUChar("g",     lightState.g);
+    prefs.putUChar("b",     lightState.b);
+    prefs.putUChar("level", lightState.level);
+    prefs.putUShort("mir",  lightState.mireds);
+    prefs.putBool("isCT",   lightState.isCT);
+    prefs.end();
+}
+
+static void loadState() {
+    prefs.begin("light", true);
+    lightState.on     = prefs.getBool("on",      false);
+    lightState.r      = prefs.getUChar("r",      255);
+    lightState.g      = prefs.getUChar("g",      255);
+    lightState.b      = prefs.getUChar("b",      255);
+    lightState.level  = prefs.getUChar("level",  DEFAULT_BRIGHTNESS);
+    lightState.mireds = prefs.getUShort("mir",   370);
+    lightState.isCT   = prefs.getBool("isCT",    false);
+    prefs.end();
 }
 
 // ── Colour-temperature helpers ────────────────────────────────────────────
@@ -132,7 +207,6 @@ static void applyLEDs() {
 
 // Basic on/off callback — registered with the current ZigbeeLight endpoint
 void onOnOffChange(bool state) {
-    Serial.printf("OnOff state=%d\n", state);
     effectState.active = Effect::NONE;
     lightState.on = state;
     lightState.dirty = true;
@@ -141,7 +215,6 @@ void onOnOffChange(bool state) {
 // ── Colour callbacks (kept for future use, not registered) ───────────────
 // Called for colour scenes (XY → RGB conversion handled by the stack)
 void onRgbChange(bool state, uint8_t r, uint8_t g, uint8_t b, uint8_t level) {
-    Serial.printf("RGB  state=%d  r=%u g=%u b=%u  level=%u\n", state, r, g, b, level);
     effectState.active = Effect::NONE;
     lightState.on    = state;
     lightState.r     = r;
@@ -154,7 +227,6 @@ void onRgbChange(bool state, uint8_t r, uint8_t g, uint8_t b, uint8_t level) {
 
 // Called when Hue bridge sends Move-to-Hue-and-Saturation / Move-Hue commands
 void onHsvChange(bool state, uint8_t hue, uint8_t sat, uint8_t value) {
-    Serial.printf("HSV  state=%d  h=%u s=%u v=%u\n", state, hue, sat, value);
     effectState.active = Effect::NONE;
     // Convert HSV to RGB with full value; the level attribute handles brightness.
     CRGB rgb;
@@ -170,7 +242,6 @@ void onHsvChange(bool state, uint8_t hue, uint8_t sat, uint8_t value) {
 
 // Called for white / colour-temperature scenes
 void onTempChange(bool state, uint8_t level, uint16_t mireds) {
-    Serial.printf("CT   state=%d  level=%u  mireds=%u\n", state, level, mireds);
     effectState.active = Effect::NONE;
     lightState.on     = state;
     lightState.level  = level;
@@ -181,14 +252,27 @@ void onTempChange(bool state, uint8_t level, uint16_t mireds) {
 
 // Called by the coordinator / Hue bridge when it wants to identify the device
 void onIdentify(uint16_t timeSeconds) {
-    Serial.printf("Identify for %u s\n", timeSeconds);
     lightState.dirty = true;
+}
+
+// Called when ZCL Color Loop Set command (0x44) activates or deactivates the color loop
+void onColorLoopChange(bool active, uint8_t direction, uint16_t time_s) {
+    if (active) {
+        effectState.loopDir   = direction;
+        effectState.loopTime  = time_s ? time_s : 25;
+        effectState.active    = Effect::COLOR_LOOP;
+        effectState.startedAt = millis();
+    } else if (effectState.active == Effect::COLOR_LOOP) {
+        effectState.active = Effect::NONE;
+        lightState.dirty   = true;
+    }
 }
 
 // ── setup ─────────────────────────────────────────────────────────────────
 void setup() {
     Serial.begin(115200);
     delay(500);
+    loadState();
 
     // ── WS2812B strip ────────────────────────────────────────────────────
     FastLED.addLeds<WS2812B, LED_DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS)
@@ -198,6 +282,7 @@ void setup() {
     FastLED.setBrightness(DEFAULT_BRIGHTNESS);
     fill_solid(leds, NUM_LEDS, CRGB::Black);
     FastLED.show();
+    lightState.dirty = true;  // apply loaded state on first loop iteration
 
     // ── Factory-reset button ─────────────────────────────────────────────
     pinMode(FACTORY_RESET_PIN, INPUT_PULLUP);
@@ -210,12 +295,26 @@ void setup() {
     zbLight.onLightChangeHsv(onHsvChange);
     zbLight.onLightChangeTemp(onTempChange);
     zbLight.onIdentify(onIdentify);
+    zbLight.onColorLoop(onColorLoopChange);
 
     // Declare mains power and firmware versions — read by the Hue bridge
     // during device interview (Basic cluster attribute read).
     zbLight.setPowerSource(ZB_POWER_SOURCE_MAINS);
     zbLight.setVersion(1);
     zbLight.setHardwareVersion(1);
+    // Enable all five ZCL ColorCapabilities bits so the Hue bridge (and Google
+    // Home via Hue) can use HS, XY and CT modes.  Without this the internal
+    // guard in ZigbeeColorDimmableLight silently drops every HS and CT command
+    // even though the ZCL attribute already advertises full capabilities.
+    zbLight.setLightColorCapabilities(
+        ZIGBEE_COLOR_CAPABILITY_HUE_SATURATION |
+        ZIGBEE_COLOR_CAPABILITY_ENHANCED_HUE   |
+        ZIGBEE_COLOR_CAPABILITY_COLOR_LOOP     |
+        ZIGBEE_COLOR_CAPABILITY_X_Y            |
+        ZIGBEE_COLOR_CAPABILITY_COLOR_TEMP);
+    // Advertise the physical CT range that applyLEDs() can reproduce.
+    // 153 mireds = 6500 K (cool white), 500 mireds = 2000 K (warm white).
+    zbLight.setLightColorTemperatureRange(153, 500);
 
     Zigbee.addEndpoint(&zbLight);
 
@@ -232,9 +331,16 @@ void setup() {
     }
 
     Serial.println("Connecting to Zigbee network...");
+    // Use full brightness for discovery pulsation; restore afterward.
+    FastLED.setBrightness(255);
     while (!Zigbee.connected()) {
-        Serial.print('.');
-        delay(100);
+        // Pulsate blue to indicate discovery / pairing mode (3-second breath cycle).
+        // Phase +π/2 so the wave starts at full brightness (immediately visible).
+        uint8_t b = (uint8_t)(127.5f * (1.0f + sinf(
+            (millis() % 3000) / 3000.0f * 2.0f * (float)M_PI + (float)M_PI / 2.0f)));
+        fill_solid(leds, NUM_LEDS, CRGB(0, 0, b));
+        FastLED.show();
+        delay(20);
         // Factory-reset check while waiting to join
         if (digitalRead(FACTORY_RESET_PIN) == LOW) {
             delay(100);
@@ -249,8 +355,13 @@ void setup() {
             }
         }
     }
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
+    FastLED.setBrightness(DEFAULT_BRIGHTNESS);
+    FastLED.show();
     Serial.println("\nConnected!");
     zigbee_identify_effect_cb = onIdentifyEffect;
+    zigbee_scene_store_cb     = onStoreScene;
+    zigbee_scene_recall_cb    = onRecallScene;
 }
 
 // ── loop ──────────────────────────────────────────────────────────────────
@@ -267,6 +378,7 @@ void loop() {
     if (lightState.dirty) {
         lightState.dirty = false;
         applyLEDs();
+        saveState();
     }
 
     // Hold BOOT button for ≥ 3 s to factory-reset and re-pair

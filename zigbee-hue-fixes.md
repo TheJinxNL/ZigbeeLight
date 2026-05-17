@@ -36,11 +36,47 @@ esp_zb_on_off_cluster_add_attr(on_off_cluster, ESP_ZB_ZCL_ATTR_ON_OFF_GLOBAL_SCE
 - The Hue bridge sends "Off with Effect" (ZCL command 0x40) instead of plain "Off" (0x00)
 - Without `on_time` and `global_scene_control` present in the cluster, ZBOSS silently ignores the command
 
+## Fix 4: Color capabilities guard
+Call `zbLight.setLightColorCapabilities(0x001F)` in `setup()` before `Zigbee.begin()`.
+
+The `ZigbeeColorDimmableLight` class stores an internal `_color_capabilities` field that
+defaults to XY-only (`0x0008`). Every incoming attribute write is guarded against this field,
+so all Hue/Saturation and Color Temperature commands are silently dropped until the full
+bitmask is set:
+```
+ZIGBEE_COLOR_CAPABILITY_HUE_SATURATION  (bit 0)
+ZIGBEE_COLOR_CAPABILITY_ENHANCED_HUE    (bit 1)
+ZIGBEE_COLOR_CAPABILITY_COLOR_LOOP      (bit 2)
+ZIGBEE_COLOR_CAPABILITY_X_Y             (bit 3)
+ZIGBEE_COLOR_CAPABILITY_COLOR_TEMP      (bit 4)
+```
+
+## Fix 5: CT range
+Call `zbLight.setLightColorTemperatureRange(153, 500)` in `setup()` before `Zigbee.begin()`.
+
+Without this the Hue bridge and Google Home have no knowledge of the device's physical
+colour temperature limits and may clip or refuse CT slider values outside the ZCL default
+range. 153 mireds = 6500 K (cool), 500 mireds = 2000 K (warm).
+
+## Fix 6: Scene store / recall
+The Hue bridge sends `ESP_ZB_CORE_SCENES_STORE_SCENE_CB_ID` (0x01) and
+`ESP_ZB_CORE_SCENES_RECALL_SCENE_CB_ID` (0x02) action callbacks. Neither is handled
+by the upstream `ZigbeeHandlers.cpp`, causing a repeated warning whenever a scene is
+saved or activated.
+
+Add cases for both IDs in `ZigbeeHandlers.cpp` using the same `extern` function-pointer
+pattern as `ESP_ZB_CORE_IDENTIFY_EFFECT_CB_ID`. In `main.cpp` implement `onStoreScene`
+and `onRecallScene` to snapshot / restore `LightState` in NVS under namespace `"scenes"`
+keyed by `"sGGGGSS"` (hex group_id + scene_id).
+
 ## Diagnostic tip
 Enable APS-frame logging to distinguish TCLK failures (Fix 1) from interview failures (Fix 2):
 - If you see `ZDO Leave` with **zero APS frames** → Fix 1 is missing
 - If the device joins (`Joined network successfully`) but Hue never shows it → Fix 2 is missing
 - If on/off works but "off" from Hue app does nothing → Fix 3 is missing
+- If RGB or CT commands from Hue have no effect → Fix 4 is missing
+- If the CT slider is clipped or missing in Hue / Google Home → Fix 5 is missing
+- If `[W] Receive unhandled Zigbee action(0x1)` appears when saving scenes → Fix 6 is missing
 
 ## References
 - https://wejn.org/2025/01/zigbee-hue-llo-world/
