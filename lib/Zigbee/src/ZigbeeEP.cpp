@@ -112,6 +112,28 @@ bool ZigbeeEP::setManufacturerAndModel(const char *name, const char *model) {
   return ret_name == ESP_OK && ret_model == ESP_OK;
 }
 
+bool ZigbeeEP::setSWBuildID(const char *build_id) {
+  size_t len = strlen(build_id);
+  if (len > 16) {
+    log_e("SW build ID too long (max 16 chars)");
+    return false;
+  }
+  char zb_str[18];
+  zb_str[0] = static_cast<char>(len);
+  memcpy(zb_str + 1, build_id, len);
+  zb_str[len + 1] = '\0';
+  esp_zb_attribute_list_t *basic_cluster = esp_zb_cluster_list_get_cluster(_cluster_list, ESP_ZB_ZCL_CLUSTER_ID_BASIC, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+  if (basic_cluster == nullptr) {
+    log_e("Failed to get basic cluster");
+    return false;
+  }
+  esp_err_t ret = esp_zb_basic_cluster_add_attr(basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_SW_BUILD_ID, (void *)zb_str);
+  if (ret != ESP_OK) {
+    log_e("Failed to set SW build ID: 0x%x: %s", ret, esp_err_to_name(ret));
+  }
+  return ret == ESP_OK;
+}
+
 bool ZigbeeEP::setPowerSource(zb_power_source_t power_source, uint8_t battery_percentage, uint8_t battery_voltage) {
   esp_zb_attribute_list_t *basic_cluster = esp_zb_cluster_list_get_cluster(_cluster_list, ESP_ZB_ZCL_CLUSTER_ID_BASIC, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
   esp_err_t ret = esp_zb_cluster_update_attr(basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_POWER_SOURCE_ID, (void *)&power_source);

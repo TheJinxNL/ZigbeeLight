@@ -35,6 +35,8 @@
 // ─────────────────────────────────────────────
 #define DEVICE_MANUFACTURER "JINX"
 #define DEVICE_MODEL        "ZBLightStrip"
+#include "build_number.h"           // auto-generated — do not edit
+#define DEVICE_FW_BUILD     "0.1." BUILD_NUMBER_STR
 
 // ─────────────────────────────────────────────
 //  Hardware — BOOT button (hold 3 s → factory reset)

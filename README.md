@@ -43,6 +43,7 @@ Edit [src/config.h](src/config.h) before building:
 | `ZIGBEE_CHANNEL` | `25` | Zigbee channel (must match coordinator) |
 | `DEVICE_MANUFACTURER` | `"JINX"` | Shown in Hue app / z2m |
 | `DEVICE_MODEL` | `"ZBLightStrip"` | Shown in Hue app / z2m |
+| `DEVICE_FW_BUILD` | `"0.1.x"` | Firmware version reported to bridge — patch number auto-increments each build; see [Build versioning](#build-versioning) |
 | `FACTORY_RESET_PIN` | `9` | BOOT button GPIO |
 
 ## Build & Flash
@@ -64,6 +65,22 @@ pio run --target upload
 pio device monitor
 ```
 
+### Build versioning
+
+Every compile automatically increments a build counter. The resulting version
+string (`0.1.<N>`) is written to the ZCL Basic cluster attribute `SWBuildID`
+(0x4000) and reported to the Hue bridge during device interview.
+
+- **[`build_number.txt`](build_number.txt)** — plain integer, committed to
+  source control; increment it manually to reset counting.
+- **`src/build_number.h`** — auto-generated at build time, git-ignored. Do not
+  edit by hand.
+- **[`scripts/increment_build.py`](scripts/increment_build.py)** — the
+  PlatformIO `pre:` script that drives the increment.
+
+To bump the major or minor version, change the `"0.1."` prefix in
+`DEVICE_FW_BUILD` inside [src/config.h](src/config.h).
+
 > The project includes a patched copy of the Arduino Zigbee library under
 > `lib/Zigbee/`. PlatformIO uses it automatically in place of the global package.
 > Patches applied vs upstream:
@@ -77,6 +94,7 @@ pio device monitor
 > - **CT-to-RGB formula** — Planckian-locus approximation replaces the old warm/cool formula; correctly maps 2000–6500 K to perceptually accurate RGB on WS2812B
 > - **Color gamut primaries** — `NumberOfPrimaries` (0x0010) and `Primary1–3 X/Y/Intensity` (0x0011–0x001B) added to the Color Control cluster with Hue Gamut C coordinates; allows the bridge to determine the device's color gamut
 > - **`onFactoryReset` callback** — `ZigbeeCore` now exposes `onFactoryReset(fn)`, invoked before `esp_zb_factory_reset()` on both local button press and remote ZDO Leave; used to erase the `"light"` and `"scenes"` NVS namespaces so stale state does not survive a re-pair
+> - **`setSWBuildID()`** — new method on `ZigbeeEP` that writes a ZCL character string to Basic cluster attribute 0x4000 (`SWBuildID`); allows the Hue bridge and zigbee2mqtt to display the firmware version string in device details
 
 ## Pairing
 

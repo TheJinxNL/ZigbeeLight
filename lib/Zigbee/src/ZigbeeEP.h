@@ -74,6 +74,7 @@ public:
   // Set application version and hardware version
   void setVersion(uint8_t version);
   void setHardwareVersion(uint8_t version);
+  bool setSWBuildID(const char *build_id);
 
   uint8_t getEndpoint() {
     return _endpoint;

@@ -313,6 +313,7 @@ void setup() {
     zbLight.setPowerSource(ZB_POWER_SOURCE_MAINS);
     zbLight.setVersion(1);
     zbLight.setHardwareVersion(1);
+    zbLight.setSWBuildID(DEVICE_FW_BUILD);
     // Enable all five ZCL ColorCapabilities bits so the Hue bridge (and Google
     // Home via Hue) can use HS, XY and CT modes.  Without this the internal
     // guard in ZigbeeColorDimmableLight silently drops every HS and CT command
