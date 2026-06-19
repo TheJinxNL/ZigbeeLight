@@ -9,10 +9,10 @@
 #define LED_DATA_PIN        8
 
 // Total number of LEDs in the strip
-#define NUM_LEDS            8
+#define NUM_LEDS            30
 
 // WS2812B uses GRB byte order (not RGB)
-#define COLOR_ORDER         GRB
+#define COLOR_ORDER         BRG
 
 // Power-on brightness (0–255). Kept low to limit inrush current.
 #define DEFAULT_BRIGHTNESS  50
